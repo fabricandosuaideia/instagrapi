@@ -2540,6 +2540,39 @@ class DirectExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(str(message.xma_share.video_url), "https://example.com/reel")
         self.assertIsNone(message.xma_share.header_icon_url)
 
+    def test_generic_xma_collects_multiple_items(self):
+        message = extract_direct_message(
+            {
+                "item_id": "1",
+                "user_id": "2",
+                "timestamp": 1761953663000000,
+                "item_type": "generic_xma",
+                "text": "",
+                "generic_xma": [
+                    {
+                        "target_url": "https://example.com/first",
+                        "title_text": "First item",
+                    },
+                    {
+                        "title_text": "Missing target url should be ignored",
+                    },
+                    {
+                        "target_url": "https://example.com/second",
+                        "title_text": "Second item",
+                    },
+                ],
+            }
+        )
+
+        self.assertIsNotNone(message.generic_xma)
+        self.assertEqual(len(message.generic_xma), 2)
+        self.assertEqual(
+            str(message.generic_xma[0].video_url), "https://example.com/first"
+        )
+        self.assertEqual(
+            str(message.generic_xma[1].video_url), "https://example.com/second"
+        )
+
     def test_reply_visual_media_timestamp_uses_microseconds(self):
         message = extract_direct_message(
             {
