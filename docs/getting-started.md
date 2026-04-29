@@ -10,8 +10,8 @@ python -m pip install instagrapi
 
 Supported runtime:
 
-* Main support: `Python 3.10+`
-* `Python 3.9` is in maintenance mode through **December 31, 2026**
+* `Python 3.10+`
+* `Python 3.9` support was dropped in `2.5.0` — pin to `instagrapi==2.4.5` if you need it.
 
 ## Introduction
 

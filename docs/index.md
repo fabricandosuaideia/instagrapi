@@ -18,7 +18,7 @@ Fast and effective unofficial Instagram API wrapper for Python.
 
 Support **Python 3.10+**
 
-`Python 3.9` remains in maintenance support through **December 31, 2026**. One of the reasons is that newer `requests` releases now target `Python 3.10+`.
+`Python 3.9` support was dropped in `2.5.0` — pin to `instagrapi==2.4.5` if you need it.
 
 For any other languages (e.g. C++, C#, F#, D, [Golang](https://github.com/subzeroid/instagrapi-rest/tree/main/golang), Erlang, Elixir, Nim, Haskell, Lisp, Closure, Julia, R, Java, Kotlin, Scala, OCaml, JavaScript, Crystal, Ruby, Rust, [Swift](https://github.com/subzeroid/instagrapi-rest/tree/main/swift), Objective-C, Visual Basic, .NET, Pascal, Perl, Lua, PHP and others), I suggest using [instagrapi-rest](https://github.com/subzeroid/instagrapi-rest)
 

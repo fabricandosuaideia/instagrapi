@@ -22,8 +22,7 @@ The instagrapi project is better suited for testing and research than for runnin
 
 Support **Python 3.10+**
 
-`Python 3.9` remains in maintenance support through **December 31, 2026**.
-This transition keeps current users stable while aligning the main supported range with modern dependency security and tooling compatibility. In particular, newer `requests` releases now target `Python 3.10+`, which is one of the reasons `Python 3.9` is now maintenance-only.
+`Python 3.9` support was dropped in `2.5.0`. Upstream security patches for Pillow `12.x` and pytest `9.x` are not backported to `Python 3.9`, leaving conditional pins permanently exposed to known CVEs. Users who need `Python 3.9` should pin to `instagrapi==2.4.5`.
 
 ## Installation
 
