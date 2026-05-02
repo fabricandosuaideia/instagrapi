@@ -1790,6 +1790,31 @@ class ClientTestCase(unittest.TestCase):
         self.assertEqual(first.settings["session_retry_total"], 9)
         self.assertEqual(second.settings["session_retry_total"], 3)
 
+    def test_set_device_rebuilds_user_agent(self):
+        cl = Client()
+        device = {
+            "app_version": "165.1.0.20.119",
+            "android_version": 27,
+            "android_release": "8.1.0",
+            "dpi": "480dpi",
+            "resolution": "1080x1776",
+            "manufacturer": "motorola",
+            "device": "Moto G (5S)",
+            "model": "montana",
+            "cpu": "qcom",
+            "version_code": "253447809",
+        }
+        expected_user_agent = (
+            "Instagram 165.1.0.20.119 Android (27/8.1.0; 480dpi; "
+            "1080x1776; motorola; montana; Moto G (5S); qcom; en_US; "
+            "253447809)"
+        )
+
+        cl.set_device(device)
+
+        self.assertEqual(cl.user_agent, expected_user_agent)
+        self.assertEqual(cl.settings["user_agent"], expected_user_agent)
+
     def test_jazoest(self):
         phone_id = "57d64c41-a916-3fa5-bd7a-3796c1dab122"
         self.assertTrue(generate_jazoest(phone_id), "22413")
