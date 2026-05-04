@@ -4,6 +4,7 @@ import os
 import os.path
 import random
 import tempfile
+import time
 import types
 import unittest
 from unittest import mock
@@ -151,10 +152,13 @@ class ClientPrivateTestCase(BaseClientMixin, unittest.TestCase):
     cl = None
     _username_cache = {}
 
-    def test_accounts_url(self):
+    def build_test_accounts_url(self, count=None):
         parts = urlsplit(TEST_ACCOUNTS_URL)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
-        query.setdefault("count", "5")
+        if count is None:
+            query.setdefault("count", "5")
+        else:
+            query["count"] = str(count)
         return urlunsplit(
             (
                 parts.scheme,
@@ -164,6 +168,24 @@ class ClientPrivateTestCase(BaseClientMixin, unittest.TestCase):
                 parts.fragment,
             )
         )
+
+    def client_from_test_account(self, acc):
+        settings = dict(acc["client_settings"])
+        totp_seed = settings.pop("totp_seed", None)
+        cl = Client(settings=settings, proxy=os.getenv("IG_PROXY") or acc["proxy"])
+        login_kwargs = {
+            "username": acc["username"],
+            "password": acc["password"],
+            "relogin": True,
+        }
+        if totp_seed:
+            totp_code = cl.totp_generate_code(totp_seed)
+            cl.totp_seed = totp_seed
+            cl.totp_code = totp_code
+            login_kwargs["verification_code"] = totp_code
+        cl.login(**login_kwargs)
+        cl._user_id = acc.get("user_id")
+        return cl
 
     def user_info_by_username(self, username):
         return self.cl.user_info_by_username_v1(username)
@@ -180,28 +202,22 @@ class ClientPrivateTestCase(BaseClientMixin, unittest.TestCase):
             self.cl = self.fresh_account()
 
     def fresh_account(self):
-        test_accounts_url = self.test_accounts_url()
+        test_accounts_url = self.build_test_accounts_url()
         print(f"TEST_ACCOUNTS_URL: {test_accounts_url[:8]}...{test_accounts_url[-8:]}")
-        resp = requests.get(test_accounts_url, verify=False)
+        try:
+            resp = requests.get(test_accounts_url, verify=False)
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Could not fetch TEST_ACCOUNTS_URL: " f"{exc.__class__.__name__}"
+            ) from None
         print("TEST_ACCOUNTS_URL response code: ", resp.status_code)
+        if not 200 <= resp.status_code < 300:
+            raise RuntimeError(f"TEST_ACCOUNTS_URL returned HTTP {resp.status_code}")
         last_exc = None
         for attempt, acc in enumerate(resp.json()[:5], start=1):
             print(f"Fresh account attempt {attempt}: %(username)r" % acc)
-            settings = dict(acc["client_settings"])
-            totp_seed = settings.pop("totp_seed", None)
-            cl = Client(settings=settings, proxy=acc["proxy"])
-            login_kwargs = {
-                "username": acc["username"],
-                "password": acc["password"],
-                "relogin": True,
-            }
-            if totp_seed:
-                totp_code = cl.totp_generate_code(totp_seed)
-                cl.totp_seed = totp_seed
-                cl.totp_code = totp_code
-                login_kwargs["verification_code"] = totp_code
             try:
-                cl.login(**login_kwargs)
+                return self.client_from_test_account(acc)
             except Exception as exc:
                 last_exc = exc
                 print(
@@ -209,9 +225,48 @@ class ClientPrivateTestCase(BaseClientMixin, unittest.TestCase):
                     f"{exc.__class__.__name__} {exc}"
                 )
                 continue
-            cl._user_id = acc.get("user_id")
-            return cl
         raise last_exc or RuntimeError("No usable fresh account returned")
+
+    def fresh_accounts(self, count: int, exclude_user_ids=None):
+        exclude_user_ids = {str(user_id) for user_id in (exclude_user_ids or set())}
+        request_count = count + len(exclude_user_ids) + 3
+        test_accounts_url = self.build_test_accounts_url(count=request_count)
+        print(f"TEST_ACCOUNTS_URL: {test_accounts_url[:8]}...{test_accounts_url[-8:]}")
+        try:
+            resp = requests.get(test_accounts_url, verify=False)
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Could not fetch TEST_ACCOUNTS_URL: " f"{exc.__class__.__name__}"
+            ) from None
+        print("TEST_ACCOUNTS_URL response code: ", resp.status_code)
+        if not 200 <= resp.status_code < 300:
+            raise RuntimeError(f"TEST_ACCOUNTS_URL returned HTTP {resp.status_code}")
+
+        accounts = []
+        seen_user_ids = set(exclude_user_ids)
+        last_exc = None
+        for attempt, acc in enumerate(resp.json(), start=1):
+            print(f"Fresh account attempt {attempt}: %(username)r" % acc)
+            try:
+                cl = self.client_from_test_account(acc)
+            except Exception as exc:
+                last_exc = exc
+                print(
+                    f"Fresh account attempt {attempt} failed for {acc['username']}: "
+                    f"{exc.__class__.__name__} {exc}"
+                )
+                continue
+            user_id = str(cl.user_id)
+            if user_id in seen_user_ids:
+                continue
+            seen_user_ids.add(user_id)
+            accounts.append(cl)
+            if len(accounts) == count:
+                return accounts
+        raise RuntimeError(
+            f"Could not get {count} usable fresh accounts"
+            + (f": {last_exc}" if last_exc else "")
+        )
 
     def __init__(self, *args, **kwargs):
         if TEST_ACCOUNTS_URL:
@@ -2202,6 +2257,128 @@ class ClientUserExtendTestCase(ClientPrivateTestCase):
 
     # def test_send_new_note(self):
     #     self.cl.create_note("Hello from Instagrapi!", 0)
+
+
+class ClientFollowRequestLiveTestCase(ClientPrivateTestCase):
+    def wait_for_pending_user_ids(self, client, expected_user_ids, timeout=30):
+        expected_user_ids = {str(user_id) for user_id in expected_user_ids}
+        deadline = time.time() + timeout
+        last_pending_ids = set()
+        while time.time() < deadline:
+            pending = client.user_follow_requests(amount=20)
+            last_pending_ids = {user.pk for user in pending}
+            if expected_user_ids.issubset(last_pending_ids):
+                return pending
+            time.sleep(2)
+        missing = expected_user_ids - last_pending_ids
+        self.fail(f"Pending follow requests did not appear for user ids: {missing}")
+
+    def wait_for_no_pending_user_ids(self, client, rejected_user_ids, timeout=30):
+        rejected_user_ids = {str(user_id) for user_id in rejected_user_ids}
+        deadline = time.time() + timeout
+        last_pending_ids = set()
+        while time.time() < deadline:
+            pending = client.user_follow_requests(amount=20)
+            last_pending_ids = {user.pk for user in pending}
+            if not rejected_user_ids.intersection(last_pending_ids):
+                return pending
+            time.sleep(2)
+        self.fail(
+            "Rejected follow requests are still pending for user ids: "
+            f"{rejected_user_ids.intersection(last_pending_ids)}"
+        )
+
+    def wait_for_friendship(self, client, user_id, predicate, timeout=30):
+        deadline = time.time() + timeout
+        last_relationship = None
+        while time.time() < deadline:
+            last_relationship = client.user_friendship_v1(user_id)
+            if last_relationship and predicate(last_relationship):
+                return last_relationship
+            time.sleep(2)
+        self.fail(f"Friendship state did not match for {user_id}: {last_relationship}")
+
+    def cleanup_follow_request_live_clients(self, target, requesters):
+        for requester in requesters:
+            try:
+                requester.user_unfollow(target.user_id)
+            except Exception as exc:
+                print(
+                    "Follow request live cleanup user_unfollow failed: "
+                    f"{exc.__class__.__name__} {exc}"
+                )
+        try:
+            target.account_set_public()
+        except Exception as exc:
+            print(
+                "Follow request live cleanup account_set_public failed: "
+                f"{exc.__class__.__name__} {exc}"
+            )
+
+    def test_follow_request_helpers_live(self):
+        target = self.cl
+        requesters = self.fresh_accounts(4, exclude_user_ids={target.user_id})
+        single_approve, single_decline, batch_approve, batch_decline = requesters
+        requester_ids = [str(requester.user_id) for requester in requesters]
+
+        try:
+            self.assertTrue(target.account_set_private())
+
+            for requester in requesters:
+                requester.user_follow(target.user_id)
+
+            pending = self.wait_for_pending_user_ids(target, requester_ids)
+            pending_ids = {user.pk for user in pending}
+            self.assertTrue(set(requester_ids).issubset(pending_ids))
+            self.assertTrue(all(isinstance(user, UserShort) for user in pending))
+
+            chunk_users, _ = target.user_follow_requests_chunk(max_amount=20)
+            chunk_user_ids = {user.pk for user in chunk_users}
+            self.assertTrue(set(requester_ids).issubset(chunk_user_ids))
+
+            listed_users = target.user_follow_requests(amount=20)
+            listed_user_ids = {user.pk for user in listed_users}
+            self.assertTrue(set(requester_ids).issubset(listed_user_ids))
+
+            self.assertTrue(target.user_follow_request_approve(single_approve.user_id))
+            self.wait_for_friendship(
+                single_approve,
+                target.user_id,
+                lambda relationship: relationship.following is True,
+            )
+
+            self.assertTrue(target.user_follow_request_decline(single_decline.user_id))
+            self.wait_for_no_pending_user_ids(target, {single_decline.user_id})
+            self.wait_for_friendship(
+                single_decline,
+                target.user_id,
+                lambda relationship: relationship.following is False
+                and relationship.outgoing_request is False,
+            )
+
+            batch_approve_result = target.user_follow_requests_approve(
+                [str(batch_approve.user_id)]
+            )
+            self.assertEqual(batch_approve_result, {str(batch_approve.user_id): True})
+            self.wait_for_friendship(
+                batch_approve,
+                target.user_id,
+                lambda relationship: relationship.following is True,
+            )
+
+            batch_decline_result = target.user_follow_requests_decline(
+                [str(batch_decline.user_id)]
+            )
+            self.assertEqual(batch_decline_result, {str(batch_decline.user_id): True})
+            self.wait_for_no_pending_user_ids(target, {batch_decline.user_id})
+            self.wait_for_friendship(
+                batch_decline,
+                target.user_id,
+                lambda relationship: relationship.following is False
+                and relationship.outgoing_request is False,
+            )
+        finally:
+            self.cleanup_follow_request_live_clients(target, requesters)
 
 
 class ClientMediaTestCase(ClientPrivateTestCase):
