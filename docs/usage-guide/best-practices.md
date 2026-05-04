@@ -2,23 +2,19 @@
 
 This is a best practices guide around using the Instagram API so that you don't get rate limited or banned.
 
-## Use a Proxy
+## Use a Stable Proxy Identity
 
-If you're getting errors like this
+If you're getting errors like this:
 
 - "The username you entered doesn't appear to belong to an account. Please check your username and try again."
 
-Or you notice that Instagram is sending you emails about a suspicious login attempt, you should consider using a proxy. You are getting rate limited by Instagram or they are suspicious of your location.
+Or you notice that Instagram is sending suspicious login emails, review the network identity for that account. Instagram may be rate limiting the IP, distrusting the login location, or challenging the account because the device/session and IP history do not look consistent.
 
-You should have an IP address that you use consistently per user when making API requests. This will be
-less suspicious than using a different IP address every time you make a request.
+For production automation, the safest baseline is one account per stable proxy/IP. Reusing the same country, city, ASN/mobile carrier, device settings, and saved session is less suspicious than using a different IP address every time you make a request.
 
-From our experience, here are safe limits we've seen for various actions:
-- using 10 accounts per IP address
-- publishing 4-16 posts for each account
-- publishing 24-48 stories
+Avoid treating any proxy type as a universal fix. Residential, mobile, ISP, and datacenter proxies can all fail if they are abused, shared too widely, or rotated aggressively. The exact provider matters less than consistency, reputation, and whether your request pattern fits the account history.
 
-The exact proxy provider matters less than consistency and quality. Here is the shape of using a proxy with `instagrapi`:
+Here is the shape of using a proxy with `instagrapi`:
 
 ``` python
 from instagrapi import Client
@@ -36,7 +32,23 @@ Notes:
 
 * Keep one stable proxy/IP per account whenever possible.
 * Avoid rapidly rotating countries, cities, or carrier/mobile fingerprints for the same account.
-* If you do password logins, match proxy, device settings, and account reuse consistently.
+* Prefer proxy hostnames that resolve through the proxy when using SOCKS, for example `socks5h://...`.
+* Match `set_country(...)`, `set_locale(...)`, device settings, and saved sessions to the account's normal environment.
+* Do not rotate proxy identity in the middle of a challenge, password reset, or relogin loop.
+* Treat a shared IP pool as higher risk; reduce account count and request volume if you cannot dedicate an IP per account.
+
+## Warm Accounts Gradually
+
+New, restored, or previously challenged accounts should not immediately run high-volume actions.
+
+Practical warmup rules:
+
+* Start with read-heavy authenticated actions before write-heavy actions.
+* Avoid repeated fresh password logins. Save settings and reuse the same device/session identity.
+* Keep early write actions low and human-like: fewer follows, likes, comments, DMs, uploads, and profile edits.
+* Increase volume slowly over days, not minutes.
+* Stop and inspect the account manually after repeated challenges, forced password changes, or feedback blocks.
+* Do not run the same workload across many accounts from the same fresh proxy pool at once.
 
 ## Add Delays
 
@@ -53,6 +65,8 @@ cl = Client()
 # adds a random delay between 1 and 3 seconds after each request
 cl.delay_range = [1, 3]
 ```
+
+Delays are only one layer. For larger jobs, also limit concurrency per account, per proxy, and per action type. A single account doing many parallel actions is more suspicious than the same work spread out with clear cooldowns.
 
 ## Handle Rate Limits and Anti-Abuse Responses Explicitly
 
@@ -118,7 +132,28 @@ Recommended response:
 * Persist sessions and device identifiers; avoid password login from scratch on every run.
 * Freeze accounts that hit repeated anti-abuse responses instead of hammering them harder.
 * Track errors per account, per proxy, and per action type so you can see which variable is actually causing trouble.
+* Retry transport errors differently from account restrictions. A timeout may be retried; a challenge or feedback block needs cooldown and investigation.
 
+## Common Anti-Patterns
+
+These patterns often create support issues that are not library bugs:
+
+* logging in with username/password on every script run
+* switching proxies after every request
+* sharing one noisy IP across many unrelated accounts
+* retrying `429`, `PleaseWaitFewMinutes`, `FeedbackRequired`, or challenges in a tight loop
+* mixing browser `sessionid` reuse with frequent private API password logins
+* changing password, email, phone, profile, and posting behavior from a fresh proxy at the same time
+* running write-heavy automation immediately after account creation or recovery
+* ignoring `client.last_json` and treating every exception as a generic transient failure
+
+## Separate Library Bugs from Operational Blocks
+
+A library bug usually reproduces consistently for the same endpoint and payload, especially across accounts with healthy sessions. Useful reports include the method called, sanitized request/response data, stack trace, dependency versions, and whether the same account works in the official app.
+
+An operational block is usually account, proxy, session, or action-pattern specific. Signs include `429`, `PleaseWaitFewMinutes`, `FeedbackRequired`, suspicious login emails, challenges, forced password changes, or behavior that disappears after cooldown, cleaner proxy identity, or manual app verification.
+
+When reporting an issue, include enough context to distinguish these cases. Remove cookies, session IDs, tokens, passwords, phone numbers, emails, and private user data before sharing logs.
 
 ## Use Sessions
 
