@@ -1513,7 +1513,7 @@
 <span class="c1"># cl.login("instagrapi", "42", verification_code="123456")  # with 2FA verification_code</span>
 <span class="c1"># cl.login_by_sessionid("peiWooShooghahdi2Eip7phohph0eeng")</span>
 <span class="n">cl</span><span class="o">.</span><span class="n">set_proxy</span><span class="p">(</span><span class="s2">"socks5://127.0.0.1:30235"</span><span class="p">)</span>
-<span class="c1"># cl.set_proxy("http://username:password@127.0.0.1:8080")</span>
+<span class="c1"># cl.set_proxy("http://YOUR_USERNAME:YOUR_PASSWORD@127.0.0.1:8080")</span>
 <span class="c1"># cl.set_proxy("socks5://username:password@127.0.0.1:30235")</span>
 <span class="c1"># when addressing the proxy via hostname:</span>
 <span class="c1"># cl.set_proxy("socks5h://username:password@exampleproxy.tld:30235")</span>
@@ -1536,7 +1536,11 @@
 </tr>
 <tr>
 <td>request_timeout</td>
-<td>Timeout in seconds between requests (1 second by default)</td>
+<td>Delay in seconds between requests (1 second by default); controls pacing, not HTTP timeouts</td>
+</tr>
+<tr>
+<td>read_timeout</td>
+<td>HTTP timeout in seconds for URL downloads and selected public helpers listed below (25 seconds by default)</td>
 </tr>
 <tr>
 <td>public_request_retries_count</td>
@@ -1572,6 +1576,18 @@
 </tr>
 </tbody>
 </table>
+<p>Set <code>read_timeout</code> directly on the client at runtime; it is not a constructor option and is not saved or restored in settings. It applies to:</p>
+<ul>
+<li>The HTTP request for <code>/share/p/</code> links in <code>media_pk_from_url()</code>.</li>
+<li><code>photo_download_by_url()</code> and <code>photo_download_by_url_origin()</code>.</li>
+<li><code>video_download_by_url()</code> and <code>video_download_by_url_origin()</code>.</li>
+<li><code>story_download_by_url()</code> and <code>track_download_by_url()</code>.</li>
+<li><code>public_head()</code>.</li>
+</ul>
+<p>The legacy <code>UserMixin.fetch_fb_dtsg()</code> implementation also uses this setting. <code>Client.fetch_fb_dtsg()</code> uses a separate GraphQL implementation and retains its existing timeout behavior, as do other request methods outside the list above.</p>
+<div class="highlight"><pre><span></span><code><span class="n">client</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="n">request_timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># Disable the pacing delay.</span>
+<span class="n">client</span><span class="o">.</span><span class="n">read_timeout</span> <span class="o">=</span> <span class="mi">30</span>  <span class="c1"># Set the HTTP timeout for these helpers to 30 seconds.</span>
+</code></pre></div>
 <h3 id="login">Login</h3>
 <table>
 <thead>
@@ -1619,7 +1635,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>login()</code> uses CAA directly and does not automatically fall back to <code>login_legacy()</code>. Both entry points accept the same arguments. See the <a href="../login-migration/">login migration guide</a> for compatibility and saved-session behavior.</p>
+<p><code>login()</code> uses CAA directly. It continues through <code>login_legacy()</code> only when Instagram explicitly returns a <code>CAA_LOGIN_FALLBACK</code> instruction. Both entry points accept the same arguments. See the <a href="../login-migration/">login migration guide</a> for compatibility and saved-session behavior.</p>
 <p><code>login_by_sessionid()</code> only works when Instagram accepts that <code>sessionid</code> for the private mobile API. A browser/web <code>sessionid</code> can be rejected with <code>login_required</code> or invalidated server-side; for long-lived automation, prefer <code>login()</code> once, then <code>dump_settings()</code> and reuse the saved settings.</p>
 <p>When <code>login_by_sessionid()</code> needs to recover the account username after a private profile lookup failure, it tries the private mobile profile stream before falling back to public/web GraphQL.</p>
 <p>You can pass settings to the Client (and save cookies), it has the following format:</p>
@@ -1852,7 +1868,7 @@ See <a href="../public-transport/">Public Transport</a> for live comparison resu
 <div class="highlight"><pre><span></span><code><span class="n">cl</span> <span class="o">=</span> <span class="n">Client</span><span class="p">()</span>
 
 <span class="c1"># Los Angles user:</span>
-<span class="n">cl</span><span class="o">.</span><span class="n">set_proxy</span><span class="p">(</span><span class="s1">'http://los:angeles@proxy.address:8080'</span><span class="p">)</span>
+<span class="n">cl</span><span class="o">.</span><span class="n">set_proxy</span><span class="p">(</span><span class="s1">'http://YOUR_USERNAME:YOUR_PASSWORD@proxy.example.com:8080'</span><span class="p">)</span>
 <span class="n">cl</span><span class="o">.</span><span class="n">set_locale</span><span class="p">(</span><span class="s1">'en_US'</span><span class="p">)</span>
 <span class="n">cl</span><span class="o">.</span><span class="n">set_timezone_offset</span><span class="p">(</span><span class="o">-</span><span class="mi">7</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">60</span><span class="p">)</span>  <span class="c1"># Los Angeles UTC (GMT) -7 hours == -25200 seconds</span>
 <span class="n">cl</span><span class="o">.</span><span class="n">get_settings</span><span class="p">()</span>
